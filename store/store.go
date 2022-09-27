@@ -3,10 +3,12 @@ package store
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/cosmos/gogoproto/proto"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/tendermint/tendermint/evidence"
 	tmsync "github.com/tendermint/tendermint/libs/sync"
 	tmstore "github.com/tendermint/tendermint/proto/tendermint/store"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -264,8 +266,8 @@ func (bs *BlockStore) LoadSeenCommit(height int64) *types.Commit {
 	return commit
 }
 
-// PruneBlocks removes block up to (but not including) a height. It returns number of blocks pruned.
-func (bs *BlockStore) PruneBlocks(height int64) (uint64, error) {
+// PruneBlocks removes block up to (but not including) a height. It returns number of blocks pruned. 
+func (bs *BlockStore) PruneBlocks(height int64, time time.Time, evidenceParams types.EvidenceParams) (uint64, error) {
 	if height <= 0 {
 		return 0, fmt.Errorf("height must be greater than 0")
 	}
@@ -274,6 +276,7 @@ func (bs *BlockStore) PruneBlocks(height int64) (uint64, error) {
 		bs.mtx.RUnlock()
 		return 0, fmt.Errorf("cannot prune beyond the latest height %v", bs.height)
 	}
+	head := bs.height
 	base := bs.base
 	bs.mtx.RUnlock()
 	if height < base {
@@ -300,19 +303,30 @@ func (bs *BlockStore) PruneBlocks(height int64) (uint64, error) {
 		return nil
 	}
 
+	evidencePoint := height
 	for h := base; h < height; h++ {
+		
 		meta := bs.LoadBlockMeta(h)
 		if meta == nil { // assume already deleted
 			continue
 		}
-		if err := batch.Delete(calcBlockMetaKey(h)); err != nil {
-			return 0, err
+
+		if evidencePoint == height && !evidence.IsEvidenceExpired(head, time, h, meta.Header.Time, evidenceParams) {
+			evidencePoint = h
+		}
+		
+		if h < evidencePoint {
+			if err := batch.Delete(calcBlockMetaKey(h)); err != nil {
+				return 0, err
+			}
 		}
 		if err := batch.Delete(calcBlockHashKey(meta.BlockID.Hash)); err != nil {
 			return 0, err
 		}
-		if err := batch.Delete(calcBlockCommitKey(h)); err != nil {
-			return 0, err
+		if h < evidencePoint {
+			if err := batch.Delete(calcBlockCommitKey(h)); err != nil {
+				return 0, err
+			}
 		}
 		if err := batch.Delete(calcSeenCommitKey(h)); err != nil {
 			return 0, err

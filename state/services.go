@@ -26,7 +26,7 @@ type BlockStore interface {
 
 	SaveBlock(block *types.Block, blockParts *types.PartSet, seenCommit *types.Commit)
 
-	PruneBlocks(height int64) (uint64, error)
+	PruneBlocks(height int64, evidenceParams types.EvidenceParams) (uint64, error)
 
 	LoadBlockByHash(hash []byte) *types.Block
 	LoadBlockMetaByHash(hash []byte) *types.BlockMeta
